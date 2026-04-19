@@ -1,0 +1,48 @@
+name: Tabby
+options:
+  bundleIdPrefix: com.guglielmofonda
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    CODE_SIGN_STYLE: Automatic
+    DEAD_CODE_STRIPPING: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+
+packages:
+  DynamicNotchKit:
+    url: https://github.com/MrKai77/DynamicNotchKit
+    from: "1.1.0"
+  TDLibKit:
+    url: https://github.com/Swiftgram/TDLibKit
+    exactVersion: "1.5.2-tdlib-1.8.63-a82128ab"
+  ArgmaxOSS:
+    url: https://github.com/argmaxinc/argmax-oss-swift
+    from: "0.18.0"
+
+targets:
+  Tabby:
+    type: application
+    platform: macOS
+    sources:
+      - path: Tabby
+    settings:
+      base:
+        INFOPLIST_FILE: Tabby/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Tabby/Tabby.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.guglielmofonda.Tabby
+        PRODUCT_NAME: Tabby
+        GENERATE_INFOPLIST_FILE: NO
+    dependencies:
+      - package: DynamicNotchKit
+      - package: TDLibKit
+      - package: ArgmaxOSS
+        product: WhisperKit

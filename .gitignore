@@ -1,0 +1,22 @@
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcuserstate
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# Tabby
+tdlib_db/
+*.tdlib
+Models/

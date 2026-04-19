@@ -25,17 +25,28 @@ struct TranscribingView: View {
         .frame(minWidth: 300, maxWidth: 440)
     }
 
+    private var engine: SettingsStore.TranscriptionEngine {
+        SettingsStore.transcriptionEngine
+    }
+
     private var headline: String {
-        if transcriber.loadingMessage != nil {
-            return "Preparing local transcription"
+        switch engine {
+        case .cloud:
+            return "Uploading to OpenAI…"
+        case .local:
+            if transcriber.loadingMessage != nil {
+                return "Preparing local transcription"
+            }
+            return "Transcribing locally…"
         }
-        return "Transcribing…"
     }
 
     private var subtitle: String? {
-        if let message = transcriber.loadingMessage {
-            return message
+        switch engine {
+        case .cloud:
+            return "gpt-4o-transcribe"
+        case .local:
+            return transcriber.loadingMessage
         }
-        return nil
     }
 }

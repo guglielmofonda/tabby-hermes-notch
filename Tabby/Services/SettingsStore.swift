@@ -65,6 +65,30 @@ enum SettingsStore {
         set { defaults.set(newValue, forKey: "whisperKitModel") }
     }
 
+    /// Cap how long Hermes's reply should be. Appended to every outgoing prompt.
+    static var maxResponseLines: Int {
+        get {
+            let v = defaults.integer(forKey: "maxResponseLines")
+            return v > 0 ? v : 5
+        }
+        set { defaults.set(max(1, min(30, newValue)), forKey: "maxResponseLines") }
+    }
+
+    /// User-facing name for the bot (shown in the notch, settings, error messages).
+    /// Does NOT rename the Telegram bot itself — that's `hermesBotUsername`.
+    static var botDisplayName: String {
+        get {
+            let v = defaults.string(forKey: "botDisplayName")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let v, !v.isEmpty { return v }
+            return "Hermes"
+        }
+        set {
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { defaults.removeObject(forKey: "botDisplayName") }
+            else { defaults.set(trimmed, forKey: "botDisplayName") }
+        }
+    }
+
     /// nil means "use the built-in MacBook microphone if present, else system default."
     static var selectedInputDeviceID: UInt32? {
         get {

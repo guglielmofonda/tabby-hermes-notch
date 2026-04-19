@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreAudio
+import AVFoundation
 
 struct SettingsView: View {
     @ObservedObject var state = AppState.shared
@@ -8,6 +9,7 @@ struct SettingsView: View {
     @State private var engine: SettingsStore.TranscriptionEngine = SettingsStore.transcriptionEngine
     @State private var model: String = SettingsStore.whisperKitModel
     @State private var openAIKey: String = SettingsStore.openAIKey ?? ""
+    @State private var maxResponseLines: Int = SettingsStore.maxResponseLines
 
     private let modelOptions: [(label: String, value: String)] = [
         ("tiny.en — fastest (~40 MB)", "openai_whisper-tiny.en"),
@@ -20,10 +22,16 @@ struct SettingsView: View {
         ?? AudioDeviceRegistry.builtInInput()?.id
         ?? AudioDeviceRegistry.systemDefaultInputID()
         ?? 0
+    @State private var micAuthStatus: AVAuthorizationStatus =
+        AVCaptureDevice.authorizationStatus(for: .audio)
 
     var body: some View {
         Form {
             Section("Microphone") {
+                LabeledContent("Mic authorization") {
+                    micAuthControl
+                }
+
                 Picker("Input", selection: $selectedInput) {
                     ForEach(inputDevices, id: \.id) { d in
                         Text(labelFor(d)).tag(d.id)
@@ -34,6 +42,7 @@ struct SettingsView: View {
                 }
                 Button("Refresh device list") {
                     inputDevices = AudioDeviceRegistry.listInputDevices()
+                    refreshMicAuth()
                 }
                 Text("Built-in MacBook mic is picked by default. Change this if Tabby ever records silence.")
                     .font(.caption)
@@ -97,18 +106,49 @@ struct SettingsView: View {
             if engine == .cloud {
                 Section("Cloud (OpenAI Whisper)") {
                     SecureField("OpenAI API key (sk-…)", text: $openAIKey)
-                    Button("Save key") {
-                        SettingsStore.openAIKey = openAIKey.isEmpty ? nil : openAIKey
+                    HStack {
+                        Button("Save key") {
+                            SettingsStore.openAIKey = openAIKey.isEmpty ? nil : openAIKey
+                        }
+                        .disabled(openAIKey == (SettingsStore.openAIKey ?? ""))
+                        Spacer()
+                        if SettingsStore.openAIKey?.isEmpty == false {
+                            Label("Key saved", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.caption)
+                        }
                     }
-                    .disabled(openAIKey == (SettingsStore.openAIKey ?? ""))
-                    Text("Cloud transcription integration ships in Phase 4. For now the app falls back to local.")
+                    Text("Tabby sends the recording as a 16 kHz mono WAV to POST /v1/audio/transcriptions (model: gpt-4o-transcribe). The key is stored in this Mac's Keychain.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
+            Section("\(state.botDisplayName) response") {
+                LabeledContent("Display name") {
+                    TextField("Display name", text: $state.botDisplayName)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 180)
+                }
+                LabeledContent("Max response lines") {
+                    HStack(spacing: 6) {
+                        Text("\(maxResponseLines)")
+                            .monospacedDigit()
+                            .frame(minWidth: 24, alignment: .trailing)
+                        Stepper("", value: $maxResponseLines, in: 1...30)
+                            .labelsHidden()
+                            .onChange(of: maxResponseLines) { _, new in
+                                SettingsStore.maxResponseLines = new
+                            }
+                    }
+                }
+                Text("Tabby appends \"Output should be \(maxResponseLines) line\(maxResponseLines == 1 ? "" : "s") long maximum.\" to every prompt so Hermes keeps its replies tight enough for the notch.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Telegram") {
-                LabeledContent("Hermes bot") {
+                LabeledContent("\(state.botDisplayName) bot") {
                     Text(SettingsStore.hermesBotUsername.map { "@\($0)" } ?? "—")
                         .foregroundStyle(.secondary)
                 }
@@ -130,7 +170,11 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 580)
+        .frame(width: 460, height: 620)
+        .onAppear { refreshMicAuth() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshMicAuth()
+        }
     }
 
     private var currentMatchesSelected: Bool {
@@ -155,6 +199,47 @@ struct SettingsView: View {
         } else {
             Label("Not loaded", systemImage: "circle.dashed")
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var micAuthControl: some View {
+        switch micAuthStatus {
+        case .authorized:
+            Label("Granted", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .notDetermined:
+            Button("Authorize") {
+                Task {
+                    _ = await AVCaptureDevice.requestAccess(for: .audio)
+                    await MainActor.run { refreshMicAuth() }
+                }
+            }
+        case .denied, .restricted:
+            HStack(spacing: 6) {
+                Label("Denied", systemImage: "xmark.octagon.fill")
+                    .foregroundStyle(.red)
+                Button("Open System Settings") { openMicPrivacyPane() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        @unknown default:
+            Text("Unknown")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func refreshMicAuth() {
+        micAuthStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    }
+
+    private func openMicPrivacyPane() {
+        let urls = [
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Microphone",
+        ]
+        for str in urls {
+            if let url = URL(string: str), NSWorkspace.shared.open(url) { return }
         }
     }
 }

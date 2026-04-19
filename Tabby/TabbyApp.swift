@@ -68,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await notch.hide() }
         case .idle:
             Task { await notch.compact() }
-        case .recording, .transcribing, .sending, .waitingForHermes, .showingResponse, .error:
+        case .recording, .transcribing, .sending, .waitingForHermes, .showingConversation, .error:
             Task { await notch.expand() }
         }
     }

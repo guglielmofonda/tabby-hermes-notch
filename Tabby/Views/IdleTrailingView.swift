@@ -17,7 +17,7 @@ struct IdleTrailingView: View {
         case .recording: return "stop.circle.fill"
         case .transcribing, .sending, .waitingForHermes: return "waveform"
         case .error: return "exclamationmark.triangle.fill"
-        case .showingResponse: return "text.bubble.fill"
+        case .showingConversation: return "text.bubble.fill"
         default: return "waveform"
         }
     }

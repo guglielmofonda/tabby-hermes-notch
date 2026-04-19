@@ -22,11 +22,11 @@ struct NotchContentView: View {
         case .transcribing:
             TranscribingView()
         case .sending:
-            WaitingView(label: "Sending to Hermes…")
+            WaitingView(label: "Sending to \(state.botDisplayName)…")
         case .waitingForHermes:
-            WaitingView(label: "Waiting for Hermes…")
-        case .showingResponse(let text):
-            ResponseView(text: text)
+            WaitingView(label: "Waiting for \(state.botDisplayName)…")
+        case .showingConversation:
+            ConversationView()
         case .error(let msg):
             NotchErrorView(text: msg)
         }
@@ -37,10 +37,11 @@ struct NotchContentView: View {
         case .recording:
             // Tap anywhere on the expanded notch stops recording.
             state.toggleRecording()
-        case .showingResponse, .error:
-            // Tap to dismiss.
+        case .error:
+            // Tap to dismiss an error.
             state.dismissNotch()
         default:
+            // ConversationView has its own explicit buttons; don't dismiss on incidental taps.
             break
         }
     }

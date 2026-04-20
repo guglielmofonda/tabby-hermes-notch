@@ -3,7 +3,7 @@ import OSLog
 
 struct IdleTrailingView: View {
     @ObservedObject var state = AppState.shared
-    private static let logger = Logger(subsystem: "com.guglielmofonda.Tabby", category: "TrailingTap")
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "tabby.app", category: "TrailingTap")
 
     var body: some View {
         Image(systemName: iconName)

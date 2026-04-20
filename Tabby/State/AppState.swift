@@ -7,7 +7,11 @@ import OSLog
 final class AppState: ObservableObject {
     static let shared = AppState()
 
-    @Published var notchMode: NotchMode = .idle
+    /// Starts in `.setupPending` so the pill stays hidden while TDLib boots.
+    /// Flips to `.idle` once `applyAuthStep(.authenticated)` lands; otherwise the
+    /// user could tap-to-record before the Telegram client is ready and only see
+    /// the failure 30+ seconds later, after recording and transcription.
+    @Published var notchMode: NotchMode = .setupPending
     @Published var isSetupWindowOpen: Bool = false
     @Published var lastTranscript: String = ""
     @Published var conversation: [ConversationTurn] = []
@@ -26,7 +30,7 @@ final class AppState: ObservableObject {
     let aquaVoiceTranscriber = CloudTranscriber(provider: .aquaVoice)
 
     private var cancellables: Set<AnyCancellable> = []
-    private let logger = Logger(subsystem: "com.guglielmofonda.Tabby", category: "AppState")
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "tabby.app", category: "AppState")
 
     enum NotchMode: Equatable {
         case idle
@@ -80,11 +84,16 @@ final class AppState: ObservableObject {
         case .idle:
             // Fresh conversation
             conversation.removeAll()
+            // Claim the slot synchronously so a second tap during `audio.start()`'s
+            // suspend doesn't see `.idle` and queue a duplicate startRecording task.
+            notchMode = .recording
             Task { await startRecording() }
         case .recording:
+            notchMode = .transcribing
             Task { await stopRecordingAndTranscribe() }
         case .showingConversation:
             // Follow-up: preserve conversation
+            notchMode = .recording
             Task { await startRecording() }
         default:
             // don't interrupt transcribing / sending / waiting states via click
@@ -95,6 +104,7 @@ final class AppState: ObservableObject {
     /// Record a follow-up after a Hermes response without clearing the conversation.
     func recordFollowUp() {
         guard notchMode == .showingConversation else { return }
+        notchMode = .recording
         Task { await startRecording() }
     }
 
@@ -107,7 +117,19 @@ final class AppState: ObservableObject {
 
     func dismissNotch() {
         switch notchMode {
-        case .showingConversation, .error:
+        case .error:
+            // The user's just-spoken turn was appended before the failed send/await,
+            // so drop it. If a real exchange remains (an "Ask more" attempt that failed
+            // mid-thread), return to the conversation rather than wiping history.
+            if conversation.last?.role == .user {
+                conversation.removeLast()
+            }
+            if conversation.isEmpty {
+                dismissConversation()
+            } else {
+                notchMode = .showingConversation
+            }
+        case .showingConversation:
             dismissConversation()
         default:
             break

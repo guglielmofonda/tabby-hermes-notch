@@ -1,100 +1,131 @@
-# Tabby
+# Lima
 
-A MacBook-notch dictation launcher for a Hermes agent running on a Mac Mini, routed through Telegram.
+> **Claude Code agents:** the full installation reference lives in [`CLAUDE.md`](./CLAUDE.md). Start there.
 
-Tap the notch → speak → Tabby transcribes (local WhisperKit *or* OpenAI Whisper) → sends the prompt as a DM from your own Telegram account to your Hermes bot → shows Hermes's reply in the notch as a scrollable conversation. Tap **Ask more** to keep chatting.
+A MacBook-notch dictation launcher for a Hermes agent, routed through Telegram. Tap the notch, speak, and your voice is transcribed and delivered as a DM to your Hermes bot — its reply streams back into a scrollable conversation inside the notch.
+
+*"Lima" is the release codename; the app bundle itself is called `Tabby`.*
+
+## What it does
+
+1. You tap the notch pill (or use the menu bar).
+2. Lima records 16 kHz mono audio and transcribes it — on-device with **WhisperKit**, or via **OpenAI** (`gpt-4o-transcribe`), or via **Aqua Voice** (Avalon).
+3. The transcript is sent as a Telegram DM from **your** account (MTProto, not a bot) to your Hermes bot, with a correlation key appended so replies can be matched out of your DM stream.
+4. Hermes responds. Lima picks the matching reply, renders bold / markdown, and shows it in a conversation thread inside the notch.
+5. Tap **🎤 Ask more** to continue the thread without leaving the notch.
 
 ## Requirements
 
 - macOS 14 (Sonoma) or later, Apple Silicon
-- MacBook with a physical notch (M1 / M2 / M3 Pro or Max). Non-notched Macs get the "floating" fallback but it hasn't been tuned.
+- MacBook with a physical notch (M1/M2/M3 Pro or Max). Non-notched Macs fall back to a floating panel — usable but untuned.
 - Xcode 16+ (tested on Xcode 26)
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) — `brew install xcodegen`
-- A Telegram account (your own — Tabby logs in via MTProto, not via a bot)
-- A Hermes Telegram bot that listens to your DMs and echoes a correlation key in its final reply
-- *(Optional, for cloud transcription)* an OpenAI API key with access to `gpt-4o-transcribe`
+- A Telegram account (you log in as yourself via MTProto, not as a bot)
+- A Hermes Telegram bot that echoes a correlation key in its final reply
+- *(Optional, cloud transcription)* an OpenAI API key for `gpt-4o-transcribe` **or** an Aqua Voice (Avalon) API key
 
-## Build & run
-
-From the repo root:
+## Install & run
 
 ```sh
+brew install xcodegen
 xcodegen generate
 xcodebuild -project Tabby.xcodeproj -scheme Tabby -configuration Debug -derivedDataPath build/ build
 open build/Build/Products/Debug/Tabby.app
 ```
 
-Tabby runs as `LSUIElement=YES`: no dock icon, just a notch pill and a menu-bar waveform. Menu bar → **Open Tabby Settings…** to reach configuration.
+Lima runs as an `LSUIElement` app: no dock icon, just a notch pill and a menu-bar waveform. Use **menu bar → Open Tabby Settings…** to configure.
 
-## First run — setup wizard
+For an end-to-end install script that a Claude Code agent can follow, see [`CLAUDE.md`](./CLAUDE.md).
 
-### 1. Telegram API credentials (one-time)
+## First-run setup wizard
 
-1. Go to <https://my.telegram.org> and sign in with your phone number.
-2. Click **API development tools**.
-3. Create a new application:
-   - **App title / Short name:** anything (e.g. `Tabby`)
+### 1. Telegram API credentials
+
+1. Visit <https://my.telegram.org>, sign in with your phone number, and open **API development tools**.
+2. Create an application:
+   - **App title / Short name:** anything (e.g. `Lima`)
    - **URL:** blank is fine
    - **Platform:** *Desktop*
-4. Copy the resulting **`api_id`** (digits) and **`api_hash`** (hex) and paste them into Tabby's first wizard step.
+3. Paste the resulting **`api_id`** and **`api_hash`** into the wizard.
 
-They're stored in the macOS Keychain under service `com.guglielmofonda.Tabby`.
+Credentials land in the Keychain under service `tabby.app`.
 
 ### 2. Sign in to Telegram
 
-Tabby sends messages *as you*, so it needs to authenticate against your real account.
+- Phone number in international format (e.g. `+14155551234`).
+- Telegram sends a 5-digit code — usually in-app, not SMS.
+- 2FA password if your account has one.
 
-- Enter your phone number in international format (e.g. `+14155551234`).
-- Telegram sends a 5-digit code — usually as an in-app message in Telegram Desktop / mobile, not as SMS.
-- If your account has 2-step verification enabled, enter your Telegram password.
-
-The TDLib session is persisted on disk under `~/Library/Application Support/Tabby/tdlib_db`. Subsequent launches skip the wizard.
+The TDLib session lives at `~/Library/Application Support/Tabby/tdlib_db`. Future launches skip the wizard.
 
 ### 3. Connect your Hermes bot
 
-Enter the bot's username (without the `@`) when prompted. Tabby calls `searchPublicChat`, resolves the `chat_id`, and pins it in `UserDefaults`.
+Enter the bot's username (no `@`). Lima calls `searchPublicChat`, resolves the `chat_id`, and persists it in UserDefaults.
 
-## Using Tabby
+## Using Lima
 
-- **Tap the notch pill** → expanded recording view with a red stop button, rolling RMS waveform, and a timer.
+- **Tap the notch pill** — the notch expands to a recording view with a red stop button, rolling waveform, and a timer.
 - **Tap the red button** (or anywhere on the expanded notch) to stop and send.
-- Tabby appends a short correlation key (`respond to this with key: abc123`) to the prompt before sending. Hermes echoes the key in its reply so Tabby can pick the right message out of the DM stream.
-- Messages that look like agent tool calls (e.g. `clarify: "…" — …`) are skipped; only the conversational reply lands in the notch.
-- The response shows as a **scrollable thread** — your bubble on the right, Hermes on the left. Use **🎤 Ask more** to record a follow-up, or **✕** to close the thread.
-- No response within 2 minutes → Tabby surfaces a "No reply from Hermes" error (check Telegram directly).
+- Lima appends a short correlation key (`respond to this with key: abc123`) to the prompt. Hermes echoes the key so Lima can pick the right reply out of your DM stream.
+- Messages shaped like agent tool calls (e.g. `clarify: "…" — …`) are filtered out; only the conversational reply lands in the notch.
+- Replies render with **bold / markdown** in a scrollable thread — your bubble on the right, Hermes on the left.
+- **🎤 Ask more** records a follow-up in the same conversation; **✕** closes the thread.
+- No reply within 2 minutes → Lima surfaces a "No reply from Hermes" error (check Telegram directly).
 
 ## Settings (menu bar → Open Tabby Settings…)
 
-- **Microphone** — pick any input device. Defaults to the built-in MacBook mic (picking the wrong input is usually why the waveform goes flat).
-- **Transcription engine** — `Local (WhisperKit)` or `Cloud (OpenAI Whisper)`.
-- **WhisperKit model** — `tiny.en` (~40 MB), `base.en` (~140 MB), `small.en` (~250 MB, default). First use downloads into the Hugging Face cache; a **Download now** button lets you preload before dictating so you don't eat a 30–120 s wait mid-flow.
-- **OpenAI API key** — stored in Keychain. Tabby uploads a 16 kHz mono WAV to `/v1/audio/transcriptions` with model `gpt-4o-transcribe`.
-- **Telegram** — shows current bot + `chat_id`. *Re-run Telegram setup* wipes the TDLib database and takes you back to step 1 of the wizard.
+| Setting | What it does |
+|---|---|
+| **Microphone** | Pick any input device. Defaults to the built-in mic; a wrong pick is the usual reason the waveform stays flat. |
+| **Transcription engine** | `Local (WhisperKit)`, `Cloud (OpenAI)`, or `Cloud (Aqua Voice)`. |
+| **WhisperKit model** | `tiny.en` (~40 MB), `base.en` (~140 MB), or `small.en` (~250 MB, default). First use downloads into the Hugging Face cache — **Download now** lets you preload so you don't eat a 30–120 s wait mid-dictation. |
+| **OpenAI API key** | Stored in Keychain. Lima uploads a 16 kHz mono WAV to `/v1/audio/transcriptions` with model `gpt-4o-transcribe`. |
+| **Aqua Voice API key + model** | Stored in Keychain. Default model is `avalon-1`; override if you use a different Avalon variant. |
+| **Hermes bot username** | The bot Lima DMs. Used for chat_id resolution. |
+| **Hermes bot display name** | Override the label above Hermes's bubble in the conversation thread. |
+| **Max response lines** | Trim long replies so the notch panel doesn't overflow. |
+| **Appended prompt suffix** | Text automatically added to every prompt (e.g. to nudge formatting or tone). |
+| **Telegram** | Shows current bot + `chat_id`. *Re-run Telegram setup* wipes TDLib and restarts the wizard. |
+
+## Transcription engines
+
+| Engine | Where it runs | Trade-off |
+|---|---|---|
+| **WhisperKit** (default) | On-device, via `argmax-oss-swift` | Private + free, but first run downloads a 40–250 MB model; English-only shipped |
+| **OpenAI `gpt-4o-transcribe`** | Cloud | Fastest, auto-detects language; requires API key and sends audio to OpenAI |
+| **Aqua Voice (Avalon)** | Cloud | Alternative cloud engine, configurable model; requires API key |
+
+Switch engines at any time from Settings — no restart needed.
 
 ## Architecture (high level)
 
 ```
 ┌────────────────────────────────── MacBook (Tabby.app) ──────────────────────────────────┐
 │                                                                                         │
-│  Notch tap → AVAudioEngine (16 kHz mono Float32) → WhisperKit OR OpenAI Whisper         │
-│                                                          │                              │
-│                                                       transcript + correlation-key      │
-│                                                          ▼                              │
-│                                              TDLibKit (MTProto as your user)            │
-│                                                          │                              │
-└──────────────────────────────────────────────────────────┼──────────────────────────────┘
-                                                           ▼
-                                                    Telegram DM to @HermesBot
-                                                           │
-                                                      Hermes replies
-                                                           │
-                                                           ▼
-                                              TDLib `updateNewMessage` stream
-                                                           │
-                                            filter: chat = Hermes AND text ⊇ key AND
-                                                    not shaped like a tool call
-                                                           ▼
-                                              Notch expands with conversation view
+│  Notch tap → AVAudioEngine (16 kHz mono Float32)                                        │
+│                        │                                                                │
+│                        ▼                                                                │
+│          WhisperKit  ──OR──  OpenAI gpt-4o-transcribe  ──OR──  Aqua Voice               │
+│                        │                                                                │
+│                        ▼                                                                │
+│                transcript + correlation-key                                             │
+│                        │                                                                │
+│                        ▼                                                                │
+│                TDLibKit (MTProto, as your user)                                         │
+│                        │                                                                │
+└────────────────────────┼────────────────────────────────────────────────────────────────┘
+                         ▼
+                  Telegram DM to @HermesBot
+                         │
+                    Hermes replies
+                         │
+                         ▼
+               TDLib `updateNewMessage` stream
+                         │
+      filter: chat = Hermes AND text ⊇ key AND not shaped like a tool call
+                         │
+                         ▼
+      Notch expands → scrollable conversation with bold / markdown
 ```
 
 Key libraries:
@@ -102,7 +133,7 @@ Key libraries:
 | Concern | Library | Version |
 |---|---|---|
 | Telegram MTProto | [Swiftgram/TDLibKit](https://github.com/Swiftgram/TDLibKit) | 1.5.2 (TDLib 1.8.63) |
-| Notch UI | [MrKai77/DynamicNotchKit](https://github.com/MrKai77/DynamicNotchKit) | 1.1.0 |
+| Notch UI & pill tap | [MrKai77/DynamicNotchKit](https://github.com/MrKai77/DynamicNotchKit) | 1.1.0 |
 | On-device transcription | [argmaxinc/argmax-oss-swift](https://github.com/argmaxinc/argmax-oss-swift) (`WhisperKit` product) | 0.18.0 |
 
 ## Known limits
@@ -110,15 +141,17 @@ Key libraries:
 - Ad-hoc signed build — fine for local dogfood, will need Developer ID + notarization before any external sharing. The embedded `TDLibFramework` XCFramework will need resigning in a Run-Script phase when that happens.
 - Fullscreen apps occlude the notch panel (macOS hides the notch area under fullscreen). Expected.
 - No conversation history is persisted across app restarts.
-- English-only WhisperKit models are shipped (`*.en`). Cloud Whisper auto-detects language.
-- No global hotkey, no conversation streaming, no non-notch fallback polish.
+- English-only WhisperKit models are shipped (`*.en`). Cloud engines auto-detect language.
+- No global hotkey — the notch pill tap (or menu bar) is the only trigger.
 
 ## Reset / uninstall
 
-- Menu bar → **Reset Telegram setup** wipes TDLib state and prompts wizard again.
-- To fully reset: quit Tabby, then
-  ```sh
-  rm -rf "~/Library/Application Support/Tabby"
-  defaults delete com.guglielmofonda.Tabby
-  security delete-generic-password -s com.guglielmofonda.Tabby
-  ```
+Re-run the wizard only: **menu bar → Reset Telegram setup**.
+
+Full wipe — quit Lima, then:
+
+```sh
+rm -rf "~/Library/Application Support/Tabby"
+defaults delete tabby.app
+security delete-generic-password -s tabby.app
+```

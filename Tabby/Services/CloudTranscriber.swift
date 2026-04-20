@@ -43,7 +43,7 @@ final class CloudTranscriber: Transcriber, @unchecked Sendable {
     let provider: Provider
     var displayName: String { "Cloud (\(provider.label))" }
 
-    private let logger = Logger(subsystem: "com.guglielmofonda.Tabby", category: "CloudTranscribe")
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "tabby.app", category: "CloudTranscribe")
 
     init(provider: Provider) {
         self.provider = provider

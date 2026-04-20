@@ -15,7 +15,11 @@ final class LocalTranscriber: ObservableObject, Transcriber {
 
     private var pipe: WhisperKit?
     private var currentModel: String?
-    private let logger = Logger(subsystem: "com.guglielmofonda.Tabby", category: "WhisperKit")
+    /// In-flight load task. Concurrent callers await this instead of bailing out
+    /// with a spurious "model failed to load" — e.g. a record-tap that arrives
+    /// while the user's "Download now" click is still pulling weights down.
+    private var loadTask: Task<Bool, Never>?
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "tabby.app", category: "WhisperKit")
 
     /// Prepare the currently-selected WhisperKit model. Safe to call repeatedly.
     /// Returns true if the model is ready to transcribe after the call.
@@ -27,7 +31,23 @@ final class LocalTranscriber: ObservableObject, Transcriber {
             isModelReady = true
             return true
         }
-        guard !isLoading else { return isModelReady }
+        // Coalesce concurrent loads. After awaiting the in-flight task we re-check
+        // model identity in case the in-flight load was for a different target.
+        if let inFlight = loadTask {
+            _ = await inFlight.value
+            return pipe != nil && currentModel == target
+        }
+        let task = Task<Bool, Never> { [weak self] in
+            guard let self else { return false }
+            return await self.performLoad(target: target)
+        }
+        loadTask = task
+        let result = await task.value
+        loadTask = nil
+        return result
+    }
+
+    private func performLoad(target: String) async -> Bool {
         isLoading = true
         loadingMessage = (pipe == nil || currentModel == nil)
             ? "Downloading \(short(target)) (first run, ~60–250 MB)…"

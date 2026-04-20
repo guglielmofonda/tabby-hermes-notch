@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 enum SettingsStore {
-    private static let service = "com.guglielmofonda.Tabby"
+    private static let service = Bundle.main.bundleIdentifier ?? "tabby.app"
     private static let defaults = UserDefaults.standard
 
     // MARK: - Keychain-backed (sensitive)
@@ -164,11 +164,14 @@ enum SettingsStore {
 
     // MARK: - Reset
 
-    static func resetAll() {
-        for account in ["apiId", "apiHash", "openAIKey"] {
+    /// Clear Telegram credentials + bot binding only. Transcription provider keys,
+    /// engine selection, and model choice are intentionally preserved so re-running
+    /// Telegram setup doesn't silently destroy unrelated configuration.
+    static func resetTelegramAuth() {
+        for account in ["apiId", "apiHash"] {
             writeKeychain(nil, account: account)
         }
-        for key in ["hermesBotUsername", "hermesBotChatId", "hermesBotUserId", "transcriptionEngine", "whisperKitModel"] {
+        for key in ["hermesBotUsername", "hermesBotChatId", "hermesBotUserId"] {
             defaults.removeObject(forKey: key)
         }
     }

@@ -136,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(withTitle: "Open Tabby Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
+        menu.addItem(withTitle: "Resume Tabby Setup…", action: #selector(resumeSetupAction), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Start Dictation", action: #selector(toggleRecordingAction), keyEquivalent: "d").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Reset Telegram setup", action: #selector(resetTelegramAction), keyEquivalent: "").target = self
@@ -165,6 +166,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleRecordingAction() {
         state.toggleRecording()
+    }
+
+    @objc private func resumeSetupAction() {
+        showSetupWindow()
     }
 
     @objc private func resetTelegramAction() {

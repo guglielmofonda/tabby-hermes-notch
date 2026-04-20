@@ -1,6 +1,6 @@
 name: Tabby
 options:
-  bundleIdPrefix: com.guglielmofonda
+  bundleIdPrefix: tabby
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
@@ -38,7 +38,7 @@ targets:
       base:
         INFOPLIST_FILE: Tabby/Info.plist
         CODE_SIGN_ENTITLEMENTS: Tabby/Tabby.entitlements
-        PRODUCT_BUNDLE_IDENTIFIER: com.guglielmofonda.Tabby
+        PRODUCT_BUNDLE_IDENTIFIER: tabby.app
         PRODUCT_NAME: Tabby
         GENERATE_INFOPLIST_FILE: NO
     dependencies:

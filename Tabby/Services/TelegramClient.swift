@@ -46,7 +46,7 @@ final class TelegramClient: ObservableObject {
 
     private var manager: TDLibClientManager?
     private var client: TDLibClient?
-    private let logger = Logger(subsystem: "com.guglielmofonda.Tabby", category: "Telegram")
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "tabby.app", category: "Telegram")
 
     /// Subscribers receive every new incoming Telegram message (from any chat).
     /// Callers filter by chat_id as needed.
@@ -118,6 +118,17 @@ final class TelegramClient: ObservableObject {
             .trimmingCharacters(in: CharacterSet(charactersIn: "@"))
         do {
             let chat = try await client.searchPublicChat(username: cleaned)
+            // Reject channels, groups, supergroups — we can only DM a private chat.
+            guard case .chatTypePrivate(let p) = chat.type else {
+                lastError = "@\(cleaned) isn't a private chat. Pick a bot username (DM), not a channel or group."
+                return nil
+            }
+            // Verify the peer is actually a bot, not a regular user.
+            let user = try await client.getUser(userId: p.userId)
+            guard case .userTypeBot = user.type else {
+                lastError = "@\(cleaned) is a regular Telegram user, not a bot. Create a bot via @BotFather."
+                return nil
+            }
             return chat
         } catch {
             setError(error)
@@ -144,7 +155,7 @@ final class TelegramClient: ObservableObject {
 
     func resetAuth() {
         stop()
-        SettingsStore.resetAll()
+        SettingsStore.resetTelegramAuth()
         hermesBotChatId = 0
         hermesBotUserId = 0
         hermesBotTitle = nil
@@ -189,19 +200,20 @@ final class TelegramClient: ObservableObject {
     }
 
     /// Stream of every incoming Telegram message. Caller filters by chat_id.
+    /// Registration is synchronous — by the time this returns, any subsequent
+    /// `handleNewMessage` will see the new continuation. Otherwise a fast Hermes
+    /// reply that lands between `sendPrompt` returning and the listener being
+    /// installed would be silently dropped, causing a 2-minute false timeout.
     func incomingMessages() -> AsyncStream<IncomingMessage> {
-        AsyncStream { continuation in
-            let id = UUID()
-            let cont = continuation
-            Task { @MainActor [weak self] in
-                self?.messageContinuations[id] = cont
-            }
-            cont.onTermination = { [weak self] _ in
-                Task { @MainActor in
-                    self?.messageContinuations.removeValue(forKey: id)
-                }
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<IncomingMessage>.makeStream()
+        messageContinuations[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor in
+                self?.messageContinuations.removeValue(forKey: id)
             }
         }
+        return stream
     }
 
     /// Wait for the next incoming DM from the Hermes bot whose text contains `key`

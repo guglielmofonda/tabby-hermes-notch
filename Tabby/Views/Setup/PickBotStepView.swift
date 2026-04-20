@@ -24,6 +24,13 @@ struct PickBotStepView: View {
                     .foregroundStyle(.secondary)
                 TextField("my_hermes_bot", text: $username)
                     .textFieldStyle(.roundedBorder)
+                    .onChange(of: username) { _, _ in
+                        // Editing after a successful lookup must invalidate the cached
+                        // chat; otherwise Finish would save the old chat_id under the
+                        // new username (chat for `botA`, label `botB`).
+                        if resolved != nil { resolved = nil }
+                        errorText = nil
+                    }
                 Button("Look up") { lookup() }
                     .disabled(username.trimmingCharacters(in: .whitespaces).isEmpty || resolving)
             }

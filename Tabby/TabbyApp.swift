@@ -18,19 +18,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var statusItem: NSStatusItem?
     private var cancellables: Set<AnyCancellable> = []
+    private var pillClickMonitor: Any?
     private let state = AppState.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        notch = DynamicNotch(
+        let notch = DynamicNotch(
             hoverBehavior: [.keepVisible, .hapticFeedback],
             expanded: { NotchContentView() },
             compactLeading: { EmptyView() },
             compactTrailing: { IdleTrailingView() }
         )
+        self.notch = notch
 
         installStatusItem()
+        installPillClickMonitor()
+
+        // Pipe DynamicNotch's full-pill hover state into AppState so the idle icon
+        // scales even when the cursor is over the pill's rounded-corner chrome.
+        notch.$isHovering
+            .receive(on: RunLoop.main)
+            .sink { [weak self] hovering in
+                self?.state.isPillHovering = hovering
+            }
+            .store(in: &cancellables)
 
         state.bootstrap()
 
@@ -48,6 +60,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.handle(mode: mode)
             }
             .store(in: &cancellables)
+    }
+
+    /// Installs a local event monitor so a left-mouse-down anywhere inside the DynamicNotch
+    /// panel — including the rounded-corner chrome that DynamicNotchKit draws outside the
+    /// compactTrailing content — starts / stops recording. Only fires in idle (compact)
+    /// state; expanded states keep their SwiftUI handlers.
+    private func installPillClickMonitor() {
+        guard pillClickMonitor == nil else { return }
+        pillClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self, let notchWindow = self.notch?.windowController?.window else { return event }
+            guard event.window === notchWindow else { return event }
+            // Only hijack clicks when the notch is in its compact idle pill. Expanded states
+            // (recording/transcribing/sending/waitingForHermes/showingConversation/error)
+            // have SwiftUI buttons and tap gestures that must keep working.
+            guard self.state.notchMode == .idle else { return event }
+            Task { @MainActor in self.state.toggleRecording() }
+            return nil
+        }
     }
 
     private func handle(step: AuthStep) {
@@ -142,6 +172,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let monitor = pillClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            pillClickMonitor = nil
+        }
         state.telegram.stop()
     }
 }

@@ -95,11 +95,15 @@ private struct ConversationBubble: View {
             Text(turn.role == .hermes ? state.botDisplayName : "You")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.55))
-            Text(turn.text)
-                .font(.system(size: 13))
-                .foregroundStyle(.white)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(turn.attributedText.paragraphs().enumerated()), id: \.offset) { _, para in
+                    Text(para)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -107,5 +111,26 @@ private struct ConversationBubble: View {
                     ? Color.white.opacity(0.12)
                     : Color.accentColor.opacity(0.75))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private extension AttributedString {
+    /// Split on `\n` so each paragraph can be rendered as a separate `Text`,
+    /// letting the VStack add vertical breathing room between them without
+    /// inflating line-spacing inside a single wrapped paragraph.
+    func paragraphs() -> [AttributedString] {
+        var result: [AttributedString] = []
+        let chars = self.characters
+        var segStart = chars.startIndex
+        var i = chars.startIndex
+        while i < chars.endIndex {
+            if chars[i] == "\n" {
+                result.append(AttributedString(self[segStart..<i]))
+                segStart = chars.index(after: i)
+            }
+            i = chars.index(after: i)
+        }
+        result.append(AttributedString(self[segStart..<chars.endIndex]))
+        return result.isEmpty ? [self] : result
     }
 }

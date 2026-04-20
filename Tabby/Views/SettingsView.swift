@@ -9,7 +9,10 @@ struct SettingsView: View {
     @State private var engine: SettingsStore.TranscriptionEngine = SettingsStore.transcriptionEngine
     @State private var model: String = SettingsStore.whisperKitModel
     @State private var openAIKey: String = SettingsStore.openAIKey ?? ""
+    @State private var aquaVoiceKey: String = SettingsStore.aquaVoiceKey ?? ""
+    @State private var aquaVoiceModel: String = SettingsStore.aquaVoiceModel
     @State private var maxResponseLines: Int = SettingsStore.maxResponseLines
+    @State private var additionalAppendedText: String = SettingsStore.additionalAppendedText
 
     private let modelOptions: [(label: String, value: String)] = [
         ("tiny.en — fastest (~40 MB)", "openai_whisper-tiny.en"),
@@ -51,8 +54,9 @@ struct SettingsView: View {
 
             Section("Transcription engine") {
                 Picker("Engine", selection: $engine) {
-                    Text("Local (WhisperKit, on-device)").tag(SettingsStore.TranscriptionEngine.local)
-                    Text("Cloud (OpenAI Whisper API)").tag(SettingsStore.TranscriptionEngine.cloud)
+                    ForEach(SettingsStore.TranscriptionEngine.allCases, id: \.self) { e in
+                        Text(e.displayName).tag(e)
+                    }
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()
@@ -103,8 +107,8 @@ struct SettingsView: View {
                 }
             }
 
-            if engine == .cloud {
-                Section("Cloud (OpenAI Whisper)") {
+            if engine == .openAI {
+                Section("Cloud — OpenAI Whisper") {
                     SecureField("OpenAI API key (sk-…)", text: $openAIKey)
                     HStack {
                         Button("Save key") {
@@ -118,7 +122,42 @@ struct SettingsView: View {
                                 .font(.caption)
                         }
                     }
-                    Text("Tabby sends the recording as a 16 kHz mono WAV to POST /v1/audio/transcriptions (model: gpt-4o-transcribe). The key is stored in this Mac's Keychain.")
+                    Text("Tabby uploads a 16 kHz mono WAV to POST api.openai.com/v1/audio/transcriptions (model: gpt-4o-transcribe). Key is stored in this Mac's Keychain.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if engine == .aquaVoice {
+                Section("Cloud — Aqua Voice (Avalon)") {
+                    SecureField("Aqua Voice API key", text: $aquaVoiceKey)
+                    HStack {
+                        Button("Save key") {
+                            SettingsStore.aquaVoiceKey = aquaVoiceKey.isEmpty ? nil : aquaVoiceKey
+                        }
+                        .disabled(aquaVoiceKey == (SettingsStore.aquaVoiceKey ?? ""))
+                        Spacer()
+                        if SettingsStore.aquaVoiceKey?.isEmpty == false {
+                            Label("Key saved", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.caption)
+                        }
+                    }
+
+                    LabeledContent("Model") {
+                        TextField("avalon-1", text: $aquaVoiceModel)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 180)
+                            .onSubmit {
+                                SettingsStore.aquaVoiceModel = aquaVoiceModel
+                            }
+                    }
+                    Button("Save model") {
+                        SettingsStore.aquaVoiceModel = aquaVoiceModel
+                    }
+                    .disabled(aquaVoiceModel == SettingsStore.aquaVoiceModel)
+
+                    Text("Tabby uploads a 16 kHz mono WAV to POST api.aquavoice.com/api/v1/audio/transcriptions. If the server rejects the model name with HTTP 400, try alternatives (e.g. `avalon`, `whisper-1`). Key + model are stored in this Mac's Keychain / settings.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -142,7 +181,15 @@ struct SettingsView: View {
                             }
                     }
                 }
-                Text("Tabby appends \"Output should be \(maxResponseLines) line\(maxResponseLines == 1 ? "" : "s") long maximum.\" to every prompt so Hermes keeps its replies tight enough for the notch.")
+                LabeledContent("Additional appended text") {
+                    TextField("", text: $additionalAppendedText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 180)
+                        .onChange(of: additionalAppendedText) { _, new in
+                            SettingsStore.additionalAppendedText = new
+                        }
+                }
+                Text("Tabby appends \"Output should be \(maxResponseLines) line\(maxResponseLines == 1 ? "" : "s") long maximum.\" to every prompt so Hermes keeps its replies tight enough for the notch. Anything in \"Additional appended text\" is tacked on right after that.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

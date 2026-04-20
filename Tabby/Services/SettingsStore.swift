@@ -22,6 +22,25 @@ enum SettingsStore {
         set { writeKeychain(newValue, account: "openAIKey") }
     }
 
+    static var aquaVoiceKey: String? {
+        get { readKeychain(account: "aquaVoiceKey") }
+        set { writeKeychain(newValue, account: "aquaVoiceKey") }
+    }
+
+    /// Model name for Aqua Voice. Editable in Settings since Avalon's docs are ambiguous about the exact ID.
+    static var aquaVoiceModel: String {
+        get {
+            let v = defaults.string(forKey: "aquaVoiceModel")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let v, !v.isEmpty { return v }
+            return "avalon-1"
+        }
+        set {
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { defaults.removeObject(forKey: "aquaVoiceModel") }
+            else { defaults.set(trimmed, forKey: "aquaVoiceModel") }
+        }
+    }
+
     // MARK: - UserDefaults-backed (non-sensitive)
 
     static var hermesBotUsername: String? {
@@ -51,12 +70,27 @@ enum SettingsStore {
         }
     }
 
-    enum TranscriptionEngine: String {
-        case local, cloud
+    enum TranscriptionEngine: String, CaseIterable {
+        case local
+        case openAI
+        case aquaVoice
+
+        var displayName: String {
+            switch self {
+            case .local: return "Local — WhisperKit (on-device)"
+            case .openAI: return "Cloud — OpenAI Whisper"
+            case .aquaVoice: return "Cloud — Aqua Voice (Avalon)"
+            }
+        }
     }
 
     static var transcriptionEngine: TranscriptionEngine {
-        get { TranscriptionEngine(rawValue: defaults.string(forKey: "transcriptionEngine") ?? "") ?? .local }
+        get {
+            let raw = defaults.string(forKey: "transcriptionEngine") ?? ""
+            // Back-compat: before Aqua Voice landed, "cloud" meant OpenAI.
+            if raw == "cloud" { return .openAI }
+            return TranscriptionEngine(rawValue: raw) ?? .local
+        }
         set { defaults.set(newValue.rawValue, forKey: "transcriptionEngine") }
     }
 
@@ -72,6 +106,17 @@ enum SettingsStore {
             return v > 0 ? v : 5
         }
         set { defaults.set(max(1, min(30, newValue)), forKey: "maxResponseLines") }
+    }
+
+    /// Free-form text that Tabby appends verbatim to every outgoing prompt, after the
+    /// line-cap instruction. Empty by default.
+    static var additionalAppendedText: String {
+        get { defaults.string(forKey: "additionalAppendedText") ?? "" }
+        set {
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { defaults.removeObject(forKey: "additionalAppendedText") }
+            else { defaults.set(trimmed, forKey: "additionalAppendedText") }
+        }
     }
 
     /// User-facing name for the bot (shown in the notch, settings, error messages).

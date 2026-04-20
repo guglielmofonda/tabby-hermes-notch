@@ -21,7 +21,13 @@ final class TelegramClient: ObservableObject {
         let chatId: Int64
         let senderUserId: Int64
         let text: String
+        let attributed: AttributedString
         let receivedAt: Foundation.Date
+    }
+
+    struct HermesReply: Sendable {
+        let plain: String
+        let attributed: AttributedString
     }
 
     enum ClientError: LocalizedError {
@@ -200,11 +206,11 @@ final class TelegramClient: ObservableObject {
 
     /// Wait for the next incoming DM from the Hermes bot whose text contains `key`
     /// AND doesn't look like a tool call. Returns nil on timeout.
-    func awaitHermesReply(containingKey key: String, timeout: TimeInterval = 120) async -> String? {
+    func awaitHermesReply(containingKey key: String, timeout: TimeInterval = 120) async -> HermesReply? {
         let hermesChatId = hermesBotChatId
         guard hermesChatId != 0 else { return nil }
 
-        return await withTaskGroup(of: String?.self) { group in
+        return await withTaskGroup(of: HermesReply?.self) { group in
             group.addTask { [weak self] in
                 guard let self else { return nil }
                 let stream = await self.incomingMessages()
@@ -214,7 +220,7 @@ final class TelegramClient: ObservableObject {
                     if TelegramClient.looksLikeToolCall(msg.text) {
                         continue
                     }
-                    return msg.text
+                    return HermesReply(plain: msg.text, attributed: msg.attributed)
                 }
                 return nil
             }
@@ -266,7 +272,7 @@ final class TelegramClient: ObservableObject {
         // Skip outgoing (our own) messages — we care about replies from the bot.
         if message.isOutgoing { return }
 
-        guard let text = Self.extractText(from: message) else { return }
+        guard let extracted = Self.extractFormattedText(from: message) else { return }
 
         var senderUserId: Int64 = 0
         switch message.senderId {
@@ -278,12 +284,13 @@ final class TelegramClient: ObservableObject {
             id: message.id,
             chatId: message.chatId,
             senderUserId: senderUserId,
-            text: text,
+            text: extracted.plain,
+            attributed: extracted.attributed,
             receivedAt: Foundation.Date()
         )
 
         if message.chatId == hermesBotChatId {
-            logger.info("New Hermes message (chatId=\(message.chatId), messageId=\(message.id), \(text.count) chars)")
+            logger.info("New Hermes message (chatId=\(message.chatId), messageId=\(message.id), \(extracted.plain.count) chars)")
         }
 
         for c in messageContinuations.values {
@@ -291,13 +298,58 @@ final class TelegramClient: ObservableObject {
         }
     }
 
-    private static func extractText(from message: Message) -> String? {
+    private static func extractFormattedText(from message: Message) -> (plain: String, attributed: AttributedString)? {
         switch message.content {
         case .messageText(let t):
-            return t.text.text
+            return (t.text.text, attributed(from: t.text))
         default:
             return nil
         }
+    }
+
+    /// Convert a TDLib `FormattedText` (plain string + UTF-16-indexed entity ranges)
+    /// into an `AttributedString` for SwiftUI `Text`. Unknown entity types are left
+    /// unstyled so the raw substring still appears.
+    private static func attributed(from ft: FormattedText) -> AttributedString {
+        var attr = AttributedString(ft.text)
+        let plain = ft.text
+        let utf16 = plain.utf16
+
+        for entity in ft.entities {
+            guard
+                let startU16 = utf16.index(utf16.startIndex, offsetBy: entity.offset, limitedBy: utf16.endIndex),
+                let endU16 = utf16.index(startU16, offsetBy: entity.length, limitedBy: utf16.endIndex),
+                let startStr = String.Index(startU16, within: plain),
+                let endStr = String.Index(endU16, within: plain),
+                let aStart = AttributedString.Index(startStr, within: attr),
+                let aEnd = AttributedString.Index(endStr, within: attr)
+            else { continue }
+            let attrRange = aStart..<aEnd
+
+            switch entity.type {
+            case .textEntityTypeBold:
+                attr[attrRange].inlinePresentationIntent = .stronglyEmphasized
+            case .textEntityTypeItalic:
+                attr[attrRange].inlinePresentationIntent = .emphasized
+            case .textEntityTypeCode, .textEntityTypePre, .textEntityTypePreCode:
+                attr[attrRange].inlinePresentationIntent = .code
+            case .textEntityTypeStrikethrough:
+                attr[attrRange].strikethroughStyle = .single
+            case .textEntityTypeUnderline:
+                attr[attrRange].underlineStyle = .single
+            case .textEntityTypeTextUrl(let u):
+                if let url = URL(string: u.url) {
+                    attr[attrRange].link = url
+                }
+            case .textEntityTypeUrl:
+                if let url = URL(string: String(plain[startStr..<endStr])) {
+                    attr[attrRange].link = url
+                }
+            default:
+                break
+            }
+        }
+        return attr
     }
 
     private func handleAuthState(_ state: AuthorizationState) {

@@ -1,34 +1,74 @@
 import Foundation
 import OSLog
 
-/// Cloud transcription via OpenAI's `/v1/audio/transcriptions` endpoint.
+/// Cloud transcription via an OpenAI-compatible `/audio/transcriptions` endpoint.
 /// Encodes the captured 16 kHz mono Float32 PCM as a 16-bit WAV and uploads it via multipart form.
+/// Supports OpenAI's own API and Aqua Voice (Avalon) — both share the multipart shape.
 final class CloudTranscriber: Transcriber, @unchecked Sendable {
-    var displayName: String { "Cloud (OpenAI Whisper)" }
+    enum Provider: String, CaseIterable {
+        case openAI
+        case aquaVoice
 
-    private let logger = Logger(subsystem: "com.guglielmofonda.Tabby", category: "CloudWhisper")
-    private let endpoint = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
+        var endpoint: URL {
+            switch self {
+            case .openAI: return URL(string: "https://api.openai.com/v1/audio/transcriptions")!
+            case .aquaVoice: return URL(string: "https://api.aquavoice.com/api/v1/audio/transcriptions")!
+            }
+        }
+
+        @MainActor
+        var model: String {
+            switch self {
+            case .openAI: return "gpt-4o-transcribe"
+            case .aquaVoice: return SettingsStore.aquaVoiceModel
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .openAI: return "OpenAI Whisper"
+            case .aquaVoice: return "Aqua Voice"
+            }
+        }
+
+        @MainActor
+        var apiKey: String? {
+            switch self {
+            case .openAI: return SettingsStore.openAIKey
+            case .aquaVoice: return SettingsStore.aquaVoiceKey
+            }
+        }
+    }
+
+    let provider: Provider
+    var displayName: String { "Cloud (\(provider.label))" }
+
+    private let logger = Logger(subsystem: "com.guglielmofonda.Tabby", category: "CloudTranscribe")
+
+    init(provider: Provider) {
+        self.provider = provider
+    }
 
     enum CloudError: LocalizedError {
-        case noAPIKey
-        case unauthorized
+        case noAPIKey(providerLabel: String)
+        case unauthorized(providerLabel: String)
         case networkError(String)
         case httpError(Int, String)
         case decodingFailed
 
         var errorDescription: String? {
             switch self {
-            case .noAPIKey:
-                return "No OpenAI API key. Open Tabby Settings → Cloud and paste your key."
-            case .unauthorized:
-                return "OpenAI rejected the API key (HTTP 401). Update it in Settings."
+            case .noAPIKey(let label):
+                return "No \(label) API key. Open Tabby Settings → Cloud and paste your key."
+            case .unauthorized(let label):
+                return "\(label) rejected the API key (HTTP 401). Update it in Settings."
             case .networkError(let m):
-                return "Network error talking to OpenAI: \(m)"
+                return "Network error talking to cloud provider: \(m)"
             case .httpError(let code, let body):
-                let preview = body.prefix(160)
-                return "OpenAI returned HTTP \(code): \(preview)"
+                let preview = body.prefix(400)
+                return "Provider returned HTTP \(code): \(preview)"
             case .decodingFailed:
-                return "Couldn't decode OpenAI response."
+                return "Couldn't decode the provider's response."
             }
         }
     }
@@ -36,19 +76,27 @@ final class CloudTranscriber: Transcriber, @unchecked Sendable {
     func transcribe(samples: [Float], sampleRate: Double) async throws -> String {
         if samples.isEmpty { throw TranscriberError.empty }
 
-        let apiKey = await MainActor.run { SettingsStore.openAIKey }
-        guard let apiKey, !apiKey.isEmpty else { throw CloudError.noAPIKey }
+        let (apiKey, model) = await MainActor.run { (provider.apiKey, provider.model) }
+        guard let apiKey, !apiKey.isEmpty else {
+            throw CloudError.noAPIKey(providerLabel: provider.label)
+        }
 
         let wav = WAVEncoder.encode(samples: samples, sampleRate: sampleRate)
-        logger.info("Uploading \(wav.count) bytes (\(samples.count) samples, \(samples.count / 16000)s) to OpenAI")
+        let seconds = Double(samples.count) / sampleRate
+        logger.info("Uploading \(wav.count) bytes (~\(seconds, format: .fixed(precision: 2))s) to \(self.provider.label, privacy: .public)")
 
         let boundary = "TabbyBoundary-\(UUID().uuidString)"
-        var req = URLRequest(url: endpoint)
+        var req = URLRequest(url: provider.endpoint)
         req.httpMethod = "POST"
         req.timeoutInterval = 60
         req.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         req.addValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        req.httpBody = Self.buildMultipartBody(boundary: boundary, wav: wav, model: "gpt-4o-transcribe")
+        req.httpBody = Self.buildMultipartBody(
+            boundary: boundary,
+            wav: wav,
+            model: model
+        )
+        logger.info("\(self.provider.label, privacy: .public): POST \(self.provider.endpoint.absoluteString, privacy: .public) model=\(model, privacy: .public)")
 
         let data: Data
         let response: URLResponse
@@ -61,18 +109,19 @@ final class CloudTranscriber: Transcriber, @unchecked Sendable {
         guard let http = response as? HTTPURLResponse else {
             throw CloudError.networkError("non-HTTP response")
         }
-        if http.statusCode == 401 { throw CloudError.unauthorized }
+        if http.statusCode == 401 { throw CloudError.unauthorized(providerLabel: provider.label) }
         guard (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "(empty)"
+            logger.error("\(self.provider.label, privacy: .public) returned HTTP \(http.statusCode): \(body, privacy: .public)")
             throw CloudError.httpError(http.statusCode, body)
         }
 
-        struct WhisperResponse: Decodable { let text: String }
-        guard let decoded = try? JSONDecoder().decode(WhisperResponse.self, from: data) else {
+        struct TranscriptionResponse: Decodable { let text: String }
+        guard let decoded = try? JSONDecoder().decode(TranscriptionResponse.self, from: data) else {
             throw CloudError.decodingFailed
         }
         let text = decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        logger.info("Cloud transcript: \(text, privacy: .public)")
+        logger.info("\(self.provider.label, privacy: .public) transcript: \(text, privacy: .public)")
         return text
     }
 
@@ -113,26 +162,22 @@ enum WAVEncoder {
         var data = Data()
         data.reserveCapacity(44 + Int(dataSize))
 
-        // RIFF chunk
         data.append("RIFF".data(using: .ascii)!)
         appendLE32(&data, 36 + dataSize)
         data.append("WAVE".data(using: .ascii)!)
 
-        // fmt subchunk
         data.append("fmt ".data(using: .ascii)!)
-        appendLE32(&data, 16)              // subchunk1 size for PCM
-        appendLE16(&data, 1)               // audio format = PCM
+        appendLE32(&data, 16)
+        appendLE16(&data, 1)
         appendLE16(&data, numChannels)
         appendLE32(&data, sampleRate32)
         appendLE32(&data, byteRate)
         appendLE16(&data, blockAlign)
         appendLE16(&data, bitsPerSample)
 
-        // data subchunk
         data.append("data".data(using: .ascii)!)
         appendLE32(&data, dataSize)
 
-        // PCM samples
         for s in samples {
             let clamped = max(-1, min(1, s))
             let value = Int16(clamped * 32767)

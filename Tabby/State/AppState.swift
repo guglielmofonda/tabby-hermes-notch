@@ -14,11 +14,16 @@ final class AppState: ObservableObject {
     @Published var botDisplayName: String = SettingsStore.botDisplayName {
         didSet { SettingsStore.botDisplayName = botDisplayName }
     }
+    /// True while the mouse is over the DynamicNotch panel (pill, chrome, or expanded area).
+    /// Pumped from `DynamicNotch.$isHovering` by the AppDelegate so the idle view can react
+    /// to hover over chrome the `compactTrailing` view itself doesn't cover.
+    @Published var isPillHovering: Bool = false
 
     let telegram = TelegramClient.shared
     let audio = AudioRecorder()
     let localTranscriber = LocalTranscriber()
-    let cloudTranscriber = CloudTranscriber()
+    let openAITranscriber = CloudTranscriber(provider: .openAI)
+    let aquaVoiceTranscriber = CloudTranscriber(provider: .aquaVoice)
 
     private var cancellables: Set<AnyCancellable> = []
     private let logger = Logger(subsystem: "com.guglielmofonda.Tabby", category: "AppState")
@@ -38,7 +43,15 @@ final class AppState: ObservableObject {
         let id = UUID()
         let role: Role
         let text: String
+        let attributedText: AttributedString
         let timestamp: Date
+
+        init(role: Role, text: String, attributedText: AttributedString? = nil, timestamp: Date) {
+            self.role = role
+            self.text = text
+            self.attributedText = attributedText ?? AttributedString(text)
+            self.timestamp = timestamp
+        }
 
         enum Role: Equatable {
             case user
@@ -62,6 +75,7 @@ final class AppState: ObservableObject {
     // MARK: - Recording flow
 
     func toggleRecording() {
+        logger.info("toggleRecording; mode=\(String(describing: self.notchMode), privacy: .public)")
         switch notchMode {
         case .idle:
             // Fresh conversation
@@ -126,8 +140,13 @@ final class AppState: ObservableObject {
                     samples: samples,
                     sampleRate: AudioRecorder.targetSampleRate
                 )
-            case .cloud:
-                transcript = try await cloudTranscriber.transcribe(
+            case .openAI:
+                transcript = try await openAITranscriber.transcribe(
+                    samples: samples,
+                    sampleRate: AudioRecorder.targetSampleRate
+                )
+            case .aquaVoice:
+                transcript = try await aquaVoiceTranscriber.transcribe(
                     samples: samples,
                     sampleRate: AudioRecorder.targetSampleRate
                 )
@@ -154,7 +173,8 @@ final class AppState: ObservableObject {
         let composed = CorrelationKey.decorate(
             prompt: transcript,
             with: key,
-            maxLines: SettingsStore.maxResponseLines
+            maxLines: SettingsStore.maxResponseLines,
+            extra: SettingsStore.additionalAppendedText
         )
         notchMode = .sending
         do {
@@ -174,22 +194,32 @@ final class AppState: ObservableObject {
             return
         }
 
-        let cleaned = stripKey(from: reply, key: key)
-        conversation.append(ConversationTurn(role: .hermes, text: cleaned, timestamp: Date()))
+        let cleanedPlain = stripKey(from: reply.plain, key: key)
+        let cleanedAttr = stripKey(fromAttributed: reply.attributed, key: key)
+        conversation.append(ConversationTurn(
+            role: .hermes,
+            text: cleanedPlain,
+            attributedText: cleanedAttr,
+            timestamp: Date()
+        ))
         notchMode = .showingConversation
     }
 
-    /// Remove the `key: xxxxxx` boilerplate from Hermes's reply before displaying in the notch.
-    private func stripKey(from text: String, key: String) -> String {
-        let patterns = [
+    /// Regex patterns used to strip the correlation `key: xxxxxx` marker from Hermes's reply.
+    private func keyStripPatterns(for key: String) -> [String] {
+        [
             "\\s*\\(?\\s*key:\\s*\(key)\\s*\\)?\\s*",
             "\\s*\\[\\s*key:\\s*\(key)\\s*\\]\\s*",
             "\\s*key:\\s*\(key)\\s*",
             "^\\s*\(key)\\s*[-–—:]\\s*",
             "\\s*\(key)\\s*",
         ]
+    }
+
+    /// Remove the `key: xxxxxx` boilerplate from Hermes's reply before displaying in the notch.
+    private func stripKey(from text: String, key: String) -> String {
         var cleaned = text
-        for pattern in patterns {
+        for pattern in keyStripPatterns(for: key) {
             cleaned = cleaned.replacingOccurrences(
                 of: pattern,
                 with: " ",
@@ -197,6 +227,29 @@ final class AppState: ObservableObject {
             )
         }
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Same as `stripKey(from:key:)` but operates on `AttributedString` so the
+    /// bold/italic/link formatting around the key tokens is preserved.
+    private func stripKey(fromAttributed attr: AttributedString, key: String) -> AttributedString {
+        var out = attr
+        for pattern in keyStripPatterns(for: key) {
+            while let range = out.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+                out.replaceSubrange(range, with: AttributedString(" "))
+            }
+        }
+        let chars = out.characters
+        var start = chars.startIndex
+        while start < chars.endIndex, chars[start].isWhitespace || chars[start].isNewline {
+            start = chars.index(after: start)
+        }
+        var end = chars.endIndex
+        while end > start {
+            let prev = chars.index(before: end)
+            if !(chars[prev].isWhitespace || chars[prev].isNewline) { break }
+            end = prev
+        }
+        return AttributedString(out[start..<end])
     }
 
     private func applyAuthStep(_ step: AuthStep) {

@@ -1,15 +1,22 @@
 import SwiftUI
+import OSLog
 
 struct IdleTrailingView: View {
     @ObservedObject var state = AppState.shared
+    private static let logger = Logger(subsystem: "com.guglielmofonda.Tabby", category: "TrailingTap")
 
     var body: some View {
         Image(systemName: iconName)
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: 12, weight: .medium))
             .foregroundStyle(tintColor)
-            .frame(width: 24, height: 22)
+            .frame(width: 22, height: 22)
+            .scaleEffect(state.isPillHovering ? 1.35 : 1.0)
+            .animation(.spring(response: 0.28, dampingFraction: 0.65), value: state.isPillHovering)
             .contentShape(Rectangle())
-            .onTapGesture { state.toggleRecording() }
+            .onTapGesture {
+                Self.logger.info("trailing tap; mode=\(String(describing: state.notchMode), privacy: .public)")
+                state.toggleRecording()
+            }
     }
 
     private var iconName: String {

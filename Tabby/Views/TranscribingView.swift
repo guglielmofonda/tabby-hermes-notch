@@ -31,8 +31,10 @@ struct TranscribingView: View {
 
     private var headline: String {
         switch engine {
-        case .cloud:
+        case .openAI:
             return "Uploading to OpenAI…"
+        case .aquaVoice:
+            return "Uploading to Aqua Voice…"
         case .local:
             if transcriber.loadingMessage != nil {
                 return "Preparing local transcription"
@@ -43,8 +45,10 @@ struct TranscribingView: View {
 
     private var subtitle: String? {
         switch engine {
-        case .cloud:
+        case .openAI:
             return "gpt-4o-transcribe"
+        case .aquaVoice:
+            return "avalon-1"
         case .local:
             return transcriber.loadingMessage
         }

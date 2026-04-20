@@ -36,18 +36,22 @@ struct NotchErrorView: View {
     let text: String
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
-            Text(text)
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.85))
-                .lineLimit(3)
-            Spacer(minLength: 0)
+                .padding(.top, 2)
+            ScrollView(.vertical) {
+                Text(text)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 180)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .frame(minWidth: 280, maxWidth: 420)
+        .frame(minWidth: 320, maxWidth: 480)
     }
 }
 

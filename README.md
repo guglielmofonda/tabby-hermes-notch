@@ -14,6 +14,24 @@ A MacBook-notch dictation launcher for a Hermes agent, routed through Telegram. 
 4. Hermes responds. Lima picks the matching reply, renders bold / markdown, and shows it in a conversation thread inside the notch.
 5. Tap **🎤 Ask more** to continue the thread without leaving the notch.
 
+## Screenshots
+
+**1. Tap the notch pill** — idle state, waveform glyph on the right is the tap target.
+
+![Idle notch pill](docs/screenshots/1-idle-pill.png)
+
+**2. Record** — red stop button, rolling waveform, timer. Tap the button (or anywhere on the expanded notch) to stop and send.
+
+![Recording](docs/screenshots/2-recording.png)
+
+**3. Wait for the reply** — spinner while Hermes processes. Times out at 2 minutes.
+
+![Waiting for reply](docs/screenshots/3-waiting.png)
+
+**4. Read & follow up** — bold/markdown rendered in a scrollable thread. **🎤 Ask more** continues the conversation without leaving the notch.
+
+![Conversation reply](docs/screenshots/4-reply.png)
+
 ## Requirements
 
 - macOS 14 (Sonoma) or later, Apple Silicon

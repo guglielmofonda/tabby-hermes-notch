@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import DynamicNotchKit
+import OSLog
 
 @main
 struct TabbyApp: App {
@@ -19,7 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var cancellables: Set<AnyCancellable> = []
     private var pillClickMonitor: Any?
+    private var escKeyMonitor: Any?
     private let state = AppState.shared
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "tabby.app", category: "AppDelegate")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -34,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         installStatusItem()
         installPillClickMonitor()
+        installEscKeyMonitor()
 
         // Pipe DynamicNotch's full-pill hover state into AppState so the idle icon
         // scales even when the cursor is over the pill's rounded-corner chrome.
@@ -80,6 +84,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Installs a local event monitor so pressing ESC while the notch is recording
+    /// aborts cleanly — no transcribe, no send. ESC passes through in every other state.
+    private func installEscKeyMonitor() {
+        guard escKeyMonitor == nil else { return }
+        escKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            guard event.keyCode == 53 else { return event }
+            self.logger.info("ESC keyDown received; notchMode=\(String(describing: self.state.notchMode), privacy: .public)")
+            guard self.state.notchMode == .recording else { return event }
+            Task { @MainActor in self.state.abortRecording() }
+            return nil
+        }
+    }
+
     private func handle(step: AuthStep) {
         switch step {
         case .authenticated:
@@ -98,7 +116,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await notch.hide() }
         case .idle:
             Task { await notch.compact() }
-        case .recording, .transcribing, .sending, .waitingForHermes, .showingConversation, .error:
+        case .recording:
+            // Bring Tabby frontmost so keyDown events route to the app and the
+            // ESC-to-cancel local monitor actually fires. The notch window is a
+            // non-activating overlay, so clicking the pill doesn't activate us.
+            NSApp.activate(ignoringOtherApps: true)
+            Task { await notch.expand() }
+        case .transcribing, .sending, .waitingForHermes, .showingConversation, .error:
             Task { await notch.expand() }
         }
     }
@@ -180,6 +204,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let monitor = pillClickMonitor {
             NSEvent.removeMonitor(monitor)
             pillClickMonitor = nil
+        }
+        if let monitor = escKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            escKeyMonitor = nil
         }
         state.telegram.stop()
     }

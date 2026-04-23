@@ -136,6 +136,15 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Abort an in-progress recording without transcribing or sending anything.
+    /// Invoked by the ESC key monitor; no-op outside `.recording`.
+    func abortRecording() {
+        guard notchMode == .recording else { return }
+        logger.info("Aborting recording (ESC)")
+        _ = audio.stop()
+        notchMode = conversation.isEmpty ? .idle : .showingConversation
+    }
+
     private func startRecording() async {
         do {
             try await audio.start()
